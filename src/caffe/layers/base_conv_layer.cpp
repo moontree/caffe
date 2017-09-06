@@ -14,21 +14,21 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // Configure the kernel size, padding, stride, and inputs.
   ConvolutionParameter conv_param = this->layer_param_.convolution_param();
   force_nd_im2col_ = conv_param.force_nd_im2col();
-  channel_axis_ = bottom[0]->CanonicalAxisIndex(conv_param.axis());
-  const int first_spatial_axis = channel_axis_ + 1;
-  const int num_axes = bottom[0]->num_axes();
-  num_spatial_axes_ = num_axes - first_spatial_axis;
+  channel_axis_ = bottom[0]->CanonicalAxisIndex(conv_param.axis());//通道数对应的维度
+  const int first_spatial_axis = channel_axis_ + 1;//第一个空间维度的坐标，即channel的坐标+1
+  const int num_axes = bottom[0]->num_axes();//输入的维数
+  num_spatial_axes_ = num_axes - first_spatial_axis;//空间维度数量
   CHECK_GE(num_spatial_axes_, 0);
   vector<int> spatial_dim_blob_shape(1, std::max(num_spatial_axes_, 1));
   // Setup filter kernel dimensions (kernel_shape_).
   kernel_shape_.Reshape(spatial_dim_blob_shape);
   int* kernel_shape_data = kernel_shape_.mutable_cpu_data();
-  if (conv_param.has_kernel_h() || conv_param.has_kernel_w()) {
-    CHECK_EQ(num_spatial_axes_, 2)
+  if (conv_param.has_kernel_h() || conv_param.has_kernel_w()) {//如果参数里有kernel的高或者宽
+    CHECK_EQ(num_spatial_axes_, 2)//检查是不是2D conv
         << "kernel_h & kernel_w can only be used for 2D convolution.";
     CHECK_EQ(0, conv_param.kernel_size_size())
         << "Either kernel_size or kernel_h/w should be specified; not both.";
-    kernel_shape_data[0] = conv_param.kernel_h();
+    kernel_shape_data[0] = conv_param.kernel_h();//设置kernel的高、宽
     kernel_shape_data[1] = conv_param.kernel_w();
   } else {
     const int num_kernel_dims = conv_param.kernel_size_size();
