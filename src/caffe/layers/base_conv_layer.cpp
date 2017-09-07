@@ -6,6 +6,29 @@
 #include "caffe/util/im2col.hpp"
 #include "caffe/util/math_functions.hpp"
 
+/*layer {
+  name: "conv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "conv1"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  param {
+    lr_mult: 2
+    decay_mult: 0
+  }
+  convolution_param {
+    num_output: 96
+    kernel_size: 11
+    stride: 4
+    group: 2
+  }
+}*/
+
+
+
 namespace caffe {
 
 template <typename Dtype>
@@ -14,14 +37,14 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   // Configure the kernel size, padding, stride, and inputs.
   ConvolutionParameter conv_param = this->layer_param_.convolution_param();
   force_nd_im2col_ = conv_param.force_nd_im2col();
-  channel_axis_ = bottom[0]->CanonicalAxisIndex(conv_param.axis());//通道数对应的维度
-  const int first_spatial_axis = channel_axis_ + 1;//第一个空间维度的坐标，即channel的坐标+1
-  const int num_axes = bottom[0]->num_axes();//输入的维数
-  num_spatial_axes_ = num_axes - first_spatial_axis;//空间维度数量
+  channel_axis_ = bottom[0]->CanonicalAxisIndex(conv_param.axis());//通道数对应的维度, default is 0 ? 1?
+  const int first_spatial_axis = channel_axis_ + 1;//第一个空间维度的坐标，即channel的坐标+1, in example 2
+  const int num_axes = bottom[0]->num_axes();//输入的维数, in example 4
+  num_spatial_axes_ = num_axes - first_spatial_axis;//空间维度数量 in example 2
   CHECK_GE(num_spatial_axes_, 0);
-  vector<int> spatial_dim_blob_shape(1, std::max(num_spatial_axes_, 1));
+  vector<int> spatial_dim_blob_shape(1, std::max(num_spatial_axes_, 1));//spatial_dim_blob_shape=[max(num_spatial_axes_, 1)]
   // Setup filter kernel dimensions (kernel_shape_).
-  kernel_shape_.Reshape(spatial_dim_blob_shape);
+  kernel_shape_.Reshape(spatial_dim_blob_shape); // 设置kernel的维度, in example 2
   int* kernel_shape_data = kernel_shape_.mutable_cpu_data();
   if (conv_param.has_kernel_h() || conv_param.has_kernel_w()) {//如果参数里有kernel的高或者宽
     CHECK_EQ(num_spatial_axes_, 2)//检查是不是2D conv
@@ -31,12 +54,12 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     kernel_shape_data[0] = conv_param.kernel_h();//设置kernel的高、宽
     kernel_shape_data[1] = conv_param.kernel_w();
   } else {
-    const int num_kernel_dims = conv_param.kernel_size_size();
+    const int num_kernel_dims = conv_param.kernel_size_size(); // kernel size size, in example is 1
     CHECK(num_kernel_dims == 1 || num_kernel_dims == num_spatial_axes_)
         << "kernel_size must be specified once, or once per spatial dimension "
         << "(kernel_size specified " << num_kernel_dims << " times; "
         << num_spatial_axes_ << " spatial dims).";
-      for (int i = 0; i < num_spatial_axes_; ++i) {
+      for (int i = 0; i < num_spatial_axes_; ++i) {// kernel_shape_data = [11, 11]
         kernel_shape_data[i] =
             conv_param.kernel_size((num_kernel_dims == 1) ? 0 : i);
       }
@@ -62,7 +85,7 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
         << "(stride specified " << num_stride_dims << " times; "
         << num_spatial_axes_ << " spatial dims).";
     const int kDefaultStride = 1;
-    for (int i = 0; i < num_spatial_axes_; ++i) {
+    for (int i = 0; i < num_spatial_axes_; ++i) {// stride_data = [4, 4]
       stride_data[i] = (num_stride_dims == 0) ? kDefaultStride :
           conv_param.stride((num_stride_dims == 1) ? 0 : i);
       CHECK_GT(stride_data[i], 0) << "Stride dimensions must be nonzero.";
@@ -107,21 +130,21 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   }
   // Special case: im2col is the identity for 1x1 convolution with stride 1
   // and no padding, so flag for skipping the buffer and transformation.
-  is_1x1_ = true;
+  is_1x1_ = true; // kernel, stride is 1, no pad : in fact 1*1
   for (int i = 0; i < num_spatial_axes_; ++i) {
     is_1x1_ &=
         kernel_shape_data[i] == 1 && stride_data[i] == 1 && pad_data[i] == 0;
     if (!is_1x1_) { break; }
   }
   // Configure output channels and groups.
-  channels_ = bottom[0]->shape(channel_axis_);
-  num_output_ = this->layer_param_.convolution_param().num_output();
+  channels_ = bottom[0]->shape(channel_axis_); //input channel number, assume 4
+  num_output_ = this->layer_param_.convolution_param().num_output(); // output channel number, in example 96
   CHECK_GT(num_output_, 0);
-  group_ = this->layer_param_.convolution_param().group();
+  group_ = this->layer_param_.convolution_param().group(); // group , int example 2
   CHECK_EQ(channels_ % group_, 0);
-  CHECK_EQ(num_output_ % group_, 0)
+  CHECK_EQ(num_output_ % group_, 0) // group should divided by channels and groups
       << "Number of output should be multiples of group.";
-  if (reverse_dimensions()) {
+  if (reverse_dimensions()) { // whethere reverse , forward or backward usage?
     conv_out_channels_ = channels_;
     conv_in_channels_ = num_output_;
   } else {
@@ -134,10 +157,10 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   vector<int> weight_shape(2);
   weight_shape[0] = conv_out_channels_;
   weight_shape[1] = conv_in_channels_ / group_;
-  for (int i = 0; i < num_spatial_axes_; ++i) {
+  for (int i = 0; i < num_spatial_axes_; ++i) {// weight shape: [output,input, kernel_h, kernel_w]
     weight_shape.push_back(kernel_shape_data[i]);
   }
-  bias_term_ = this->layer_param_.convolution_param().bias_term();
+  bias_term_ = this->layer_param_.convolution_param().bias_term(); // true or false?
   vector<int> bias_shape(bias_term_, num_output_);
   if (this->blobs_.size() > 0) {
     CHECK_EQ(1 + bias_term_, this->blobs_.size())
@@ -175,8 +198,8 @@ void BaseConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
       bias_filler->Fill(this->blobs_[1].get());
     }
   }
-  kernel_dim_ = this->blobs_[0]->count(1);
-  weight_offset_ = conv_out_channels_ * kernel_dim_ / group_;
+  kernel_dim_ = this->blobs_[0]->count(1); // kernel_dim size*size --> 11*11?
+  weight_offset_ = conv_out_channels_ * kernel_dim_ / group_; // 96 * 11 * 11 / 2
   // Propagate gradients to the parameters (as directed by backward pass).
   this->param_propagate_down_.resize(this->blobs_.size(), true);
 }
